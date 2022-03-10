@@ -5,21 +5,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/0xPolygon/minimal/blockchain"
-	"github.com/0xPolygon/minimal/state"
-	"github.com/0xPolygon/minimal/types"
-	"github.com/hashicorp/go-hclog"
 	"github.com/stretchr/testify/assert"
+	"github.com/umbracle/ethgo"
 )
 
-func TestFilterLog(t *testing.T) {
+func TestFilter_Log(t *testing.T) {
 	store := newMockStore()
 
-	m := NewFilterManager(hclog.NewNullLogger(), store)
+	m := NewFilterManager(nil, store)
 	go m.Run()
 
 	id := m.addFilter(&LogFilter{
-		Topics: [][]types.Hash{
+		Topics: [][]ethgo.Hash{
 			{hash1},
 		},
 	}, nil)
@@ -27,14 +24,14 @@ func TestFilterLog(t *testing.T) {
 	store.emitEvent(&mockEvent{
 		NewChain: []*mockHeader{
 			{
-				header: &types.Header{
+				header: &ethgo.Block{
 					Hash: hash1,
 				},
-				receipts: []*types.Receipt{
+				receipts: []*ethgo.Receipt{
 					{
-						Logs: []*types.Log{
+						Logs: []*ethgo.Log{
 							{
-								Topics: []types.Hash{
+								Topics: []ethgo.Hash{
 									hash1,
 								},
 							},
@@ -45,14 +42,14 @@ func TestFilterLog(t *testing.T) {
 		},
 		OldChain: []*mockHeader{
 			{
-				header: &types.Header{
+				header: &ethgo.Block{
 					Hash: hash2,
 				},
-				receipts: []*types.Receipt{
+				receipts: []*ethgo.Receipt{
 					{
-						Logs: []*types.Log{
+						Logs: []*ethgo.Log{
 							{
-								Topics: []types.Hash{
+								Topics: []ethgo.Hash{
 									hash1,
 								},
 							},
@@ -68,10 +65,10 @@ func TestFilterLog(t *testing.T) {
 	m.GetFilterChanges(id)
 }
 
-func TestFilterBlock(t *testing.T) {
+func TestFilter_Block(t *testing.T) {
 	store := newMockStore()
 
-	m := NewFilterManager(hclog.NewNullLogger(), store)
+	m := NewFilterManager(nil, store)
 	go m.Run()
 
 	// add block filter
@@ -81,13 +78,13 @@ func TestFilterBlock(t *testing.T) {
 	store.emitEvent(&mockEvent{
 		NewChain: []*mockHeader{
 			{
-				header: &types.Header{
-					Hash: types.StringToHash("1"),
+				header: &ethgo.Block{
+					Hash: ethgo.HexToHash("1"),
 				},
 			},
 			{
-				header: &types.Header{
-					Hash: types.StringToHash("2"),
+				header: &ethgo.Block{
+					Hash: ethgo.HexToHash("2"),
 				},
 			},
 		},
@@ -96,8 +93,8 @@ func TestFilterBlock(t *testing.T) {
 	store.emitEvent(&mockEvent{
 		NewChain: []*mockHeader{
 			{
-				header: &types.Header{
-					Hash: types.StringToHash("3"),
+				header: &ethgo.Block{
+					Hash: ethgo.HexToHash("3"),
 				},
 			},
 		},
@@ -113,8 +110,8 @@ func TestFilterBlock(t *testing.T) {
 	store.emitEvent(&mockEvent{
 		NewChain: []*mockHeader{
 			{
-				header: &types.Header{
-					Hash: types.StringToHash("4"),
+				header: &ethgo.Block{
+					Hash: ethgo.HexToHash("4"),
 				},
 			},
 		},
@@ -125,10 +122,10 @@ func TestFilterBlock(t *testing.T) {
 	m.GetFilterChanges(id)
 }
 
-func TestFilterTimeout(t *testing.T) {
+func TestFilter_Timeout(t *testing.T) {
 	store := newMockStore()
 
-	m := NewFilterManager(hclog.NewNullLogger(), store)
+	m := NewFilterManager(nil, store)
 	m.timeout = 2 * time.Second
 
 	go m.Run()
@@ -141,14 +138,14 @@ func TestFilterTimeout(t *testing.T) {
 	assert.False(t, m.Exists(id))
 }
 
-func TestFilterWebsocket(t *testing.T) {
+func TestFilter_Websocket(t *testing.T) {
 	store := newMockStore()
 
 	mock := &mockWsConn{
 		msgCh: make(chan []byte, 1),
 	}
 
-	m := NewFilterManager(hclog.NewNullLogger(), store)
+	m := NewFilterManager(nil, store)
 	go m.Run()
 
 	id := m.NewBlockFilter(mock)
@@ -161,8 +158,8 @@ func TestFilterWebsocket(t *testing.T) {
 	store.emitEvent(&mockEvent{
 		NewChain: []*mockHeader{
 			{
-				header: &types.Header{
-					Hash: types.StringToHash("1"),
+				header: &ethgo.Block{
+					Hash: ethgo.HexToHash("1"),
 				},
 			},
 		},
@@ -184,22 +181,22 @@ func (m *mockWsConn) WriteMessage(b []byte) error {
 	return nil
 }
 
-func TestHeadStream(t *testing.T) {
+func TestFilter_HeadStream(t *testing.T) {
 	b := &blockStream{}
 
-	b.push(&types.Header{Hash: types.StringToHash("1")})
-	b.push(&types.Header{Hash: types.StringToHash("2")})
+	b.push(&ethgo.Block{Hash: ethgo.HexToHash("1")})
+	b.push(&ethgo.Block{Hash: ethgo.HexToHash("2")})
 
 	cur := b.Head()
 
-	b.push(&types.Header{Hash: types.StringToHash("3")})
-	b.push(&types.Header{Hash: types.StringToHash("4")})
+	b.push(&ethgo.Block{Hash: ethgo.HexToHash("3")})
+	b.push(&ethgo.Block{Hash: ethgo.HexToHash("4")})
 
 	// get the updates, there are two new entries
 	updates, next := cur.getUpdates()
 
-	assert.Equal(t, updates[0].Hash.String(), types.StringToHash("3").String())
-	assert.Equal(t, updates[1].Hash.String(), types.StringToHash("4").String())
+	assert.Equal(t, updates[0].Hash.String(), ethgo.HexToHash("3").String())
+	assert.Equal(t, updates[1].Hash.String(), ethgo.HexToHash("4").String())
 
 	// there are no new entries
 	updates, _ = next.getUpdates()
@@ -209,38 +206,34 @@ func TestHeadStream(t *testing.T) {
 type mockStore struct {
 	nullBlockchainInterface
 
-	header       *types.Header
-	subscription *blockchain.MockSubscription
+	header       *ethgo.Block
+	subscription *MockSubscription
 	receiptsLock sync.Mutex
-	receipts     map[types.Hash][]*types.Receipt
+	receipts     map[ethgo.Hash][]*ethgo.Receipt
 }
 
-func (m *mockStore) ApplyTxn(header *types.Header, txn *types.Transaction) ([]byte, bool, error) {
+func (m *mockStore) GetAccount(root ethgo.Hash, addr ethgo.Address) (*Account, error) {
 	panic("implement me")
 }
 
-func (m *mockStore) GetAccount(root types.Hash, addr types.Address) (*state.Account, error) {
+func (m *mockStore) GetStorage(root ethgo.Hash, addr ethgo.Address, slot ethgo.Hash) ([]byte, error) {
 	panic("implement me")
 }
 
-func (m *mockStore) GetStorage(root types.Hash, addr types.Address, slot types.Hash) ([]byte, error) {
-	panic("implement me")
-}
-
-func (m *mockStore) GetCode(hash types.Hash) ([]byte, error) {
+func (m *mockStore) GetCode(hash ethgo.Hash) ([]byte, error) {
 	panic("implement me")
 }
 
 func newMockStore() *mockStore {
 	return &mockStore{
-		header:       &types.Header{Number: 0},
-		subscription: blockchain.NewMockSubscription(),
+		header:       &ethgo.Block{Number: 0},
+		subscription: NewMockSubscription(),
 	}
 }
 
 type mockHeader struct {
-	header   *types.Header
-	receipts []*types.Receipt
+	header   *ethgo.Block
+	receipts []*ethgo.Receipt
 }
 
 type mockEvent struct {
@@ -250,12 +243,12 @@ type mockEvent struct {
 
 func (m *mockStore) emitEvent(evnt *mockEvent) {
 	if m.receipts == nil {
-		m.receipts = map[types.Hash][]*types.Receipt{}
+		m.receipts = map[ethgo.Hash][]*ethgo.Receipt{}
 	}
 
-	bEvnt := &blockchain.Event{
-		NewChain: []*types.Header{},
-		OldChain: []*types.Header{},
+	bEvnt := &Event{
+		NewChain: []*ethgo.Block{},
+		OldChain: []*ethgo.Block{},
 	}
 	for _, i := range evnt.NewChain {
 		m.receipts[i.header.Hash] = i.receipts
@@ -268,11 +261,11 @@ func (m *mockStore) emitEvent(evnt *mockEvent) {
 	m.subscription.Push(bEvnt)
 }
 
-func (m *mockStore) Header() *types.Header {
+func (m *mockStore) Header() *ethgo.Block {
 	return m.header
 }
 
-func (m *mockStore) GetReceiptsByHash(hash types.Hash) ([]*types.Receipt, error) {
+func (m *mockStore) GetReceiptsByHash(hash ethgo.Hash) ([]*ethgo.Receipt, error) {
 	m.receiptsLock.Lock()
 	defer m.receiptsLock.Unlock()
 
@@ -281,6 +274,6 @@ func (m *mockStore) GetReceiptsByHash(hash types.Hash) ([]*types.Receipt, error)
 }
 
 // Subscribe subscribes for chain head events
-func (m *mockStore) SubscribeEvents() blockchain.Subscription {
+func (m *mockStore) SubscribeEvents() Subscription {
 	return m.subscription
 }

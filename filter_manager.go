@@ -4,14 +4,14 @@ import (
 	"container/heap"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"log"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/0xPolygon/minimal/blockchain"
-	"github.com/0xPolygon/minimal/types"
 	"github.com/google/uuid"
-	"github.com/hashicorp/go-hclog"
+	"github.com/umbracle/ethgo"
 )
 
 type Filter struct {
@@ -21,7 +21,7 @@ type Filter struct {
 	block *headElem
 
 	// log cache
-	logs []*Log
+	logs []*ethgo.Log
 
 	// log filter
 	logFilter *LogFilter
@@ -53,7 +53,7 @@ func (f *Filter) getFilterUpdates() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	f.logs = []*Log{}
+	f.logs = []*ethgo.Log{}
 	return string(res), nil
 }
 
@@ -104,7 +104,7 @@ func (f *Filter) flush() error {
 				return err
 			}
 		}
-		f.logs = []*Log{}
+		f.logs = []*ethgo.Log{}
 	}
 	return nil
 }
@@ -117,19 +117,15 @@ func (f *Filter) isBlockFilter() bool {
 	return f.block != nil
 }
 
-func (f *Filter) match() bool {
-	return false
-}
-
 var defaultTimeout = 1 * time.Minute
 
 type FilterManager struct {
-	logger hclog.Logger
+	logger *log.Logger
 
 	store   blockchainInterface
 	closeCh chan struct{}
 
-	subscription blockchain.Subscription
+	subscription Subscription
 
 	filters map[string]*Filter
 	lock    sync.Mutex
@@ -141,9 +137,12 @@ type FilterManager struct {
 	blockStream *blockStream
 }
 
-func NewFilterManager(logger hclog.Logger, store blockchainInterface) *FilterManager {
+func NewFilterManager(logger *log.Logger, store blockchainInterface) *FilterManager {
+	if logger == nil {
+		logger = log.New(ioutil.Discard, "", log.LstdFlags)
+	}
 	m := &FilterManager{
-		logger:      logger.Named("filter"),
+		logger:      logger,
 		store:       store,
 		closeCh:     make(chan struct{}),
 		filters:     map[string]*Filter{},
@@ -166,7 +165,7 @@ func NewFilterManager(logger hclog.Logger, store blockchainInterface) *FilterMan
 func (f *FilterManager) Run() {
 
 	// watch for new events in the blockchain
-	watchCh := make(chan *blockchain.Event)
+	watchCh := make(chan *Event)
 	go func() {
 		for {
 			evnt := f.subscription.GetEvent()
@@ -184,20 +183,20 @@ func (f *FilterManager) Run() {
 		if filter == nil {
 			timeoutCh = nil
 		} else {
-			timeoutCh = time.After(filter.timestamp.Sub(time.Now()))
+			timeoutCh = time.After(time.Until(filter.timestamp))
 		}
 
 		select {
 		case evnt := <-watchCh:
 			// new blockchain event
 			if err := f.dispatchEvent(evnt); err != nil {
-				f.logger.Error("failed to dispatch event", "err", err)
+				f.logger.Printf("[ERROR] failed to dispatch event: err=%v", err)
 			}
 
 		case <-timeoutCh:
 			// timeout for filter
 			if !f.Uninstall(filter.id) {
-				f.logger.Error("failed to uninstall filter", "id", filter.id)
+				f.logger.Printf("[ERROR] failed to uninstall filter: id=%s", filter.id)
 			}
 
 		case <-f.updateCh:
@@ -223,7 +222,7 @@ func (f *FilterManager) nextTimeoutFilter() *Filter {
 	return item
 }
 
-func (f *FilterManager) dispatchEvent(evnt *blockchain.Event) error {
+func (f *FilterManager) dispatchEvent(evnt *Event) error {
 	f.lock.Lock()
 	defer f.lock.Unlock()
 
@@ -232,30 +231,20 @@ func (f *FilterManager) dispatchEvent(evnt *blockchain.Event) error {
 		f.blockStream.push(header)
 	}
 
-	processBlock := func(h *types.Header, removed bool) error {
+	processBlock := func(h *ethgo.Block, removed bool) error {
 		// get the logs from the transaction
 		receipts, err := f.store.GetReceiptsByHash(h.Hash)
 		if err != nil {
 			return err
 		}
 
-		for indx, receipt := range receipts {
+		for _, receipt := range receipts {
 			// check the logs with the filters
 			for _, log := range receipt.Logs {
 				for _, f := range f.filters {
 					if f.isLogFilter() {
 						if f.logFilter.Match(log) {
-							nn := &Log{
-								Address:     log.Address,
-								Topics:      log.Topics,
-								Data:        argBytes(log.Data),
-								BlockNumber: argUint64(h.Number),
-								BlockHash:   h.Hash,
-								TxHash:      receipt.TxHash,
-								TxIndex:     argUint64(indx),
-								Removed:     removed,
-							}
-							f.logs = append(f.logs, nn)
+							f.logs = append(f.logs, log)
 						}
 					}
 				}
@@ -414,7 +403,7 @@ func (b *blockStream) Head() *headElem {
 	return head
 }
 
-func (b *blockStream) push(header *types.Header) {
+func (b *blockStream) push(header *ethgo.Block) {
 	b.lock.Lock()
 	newHead := &headElem{
 		header: header.Copy(),
@@ -427,12 +416,12 @@ func (b *blockStream) push(header *types.Header) {
 }
 
 type headElem struct {
-	header *types.Header
+	header *ethgo.Block
 	next   *headElem
 }
 
-func (h *headElem) getUpdates() ([]*types.Header, *headElem) {
-	res := []*types.Header{}
+func (h *headElem) getUpdates() ([]*ethgo.Block, *headElem) {
+	res := []*ethgo.Block{}
 
 	cur := h
 	for {

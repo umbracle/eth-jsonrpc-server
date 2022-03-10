@@ -9,8 +9,8 @@ import (
 	"testing"
 	"text/template"
 
-	"github.com/0xPolygon/minimal/types"
 	"github.com/stretchr/testify/assert"
+	"github.com/umbracle/ethgo"
 )
 
 func TestBasicTypes_Encode(t *testing.T) {
@@ -47,7 +47,7 @@ func TestBasicTypes_Encode(t *testing.T) {
 
 func TestDecode_TxnArgs(t *testing.T) {
 	var (
-		addr = types.Address{0x0}
+		addr = ethgo.Address{0x0}
 		num  = argUint64(16)
 		hex  = argBytes([]byte{0x01})
 	)
@@ -77,8 +77,8 @@ func TestDecode_TxnArgs(t *testing.T) {
 		assert.NoError(t, err)
 
 		config := map[string]string{
-			"Addr": (types.Address{}).String(),
-			"Hash": (types.Hash{}).String(),
+			"Addr": (ethgo.Address{}).String(),
+			"Hash": (ethgo.Hash{}).String(),
 		}
 
 		buffer := new(bytes.Buffer)

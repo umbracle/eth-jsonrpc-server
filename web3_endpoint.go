@@ -1,30 +1,33 @@
 package jsonrpc
 
 import (
-	"fmt"
-
-	"github.com/0xPolygon/minimal/helper/hex"
-	"github.com/0xPolygon/minimal/helper/keccak"
-	"github.com/0xPolygon/minimal/version"
+	"golang.org/x/crypto/sha3"
 )
+
+// Web3Backend is the backend for the Net namespace
+type Web3Backend interface {
+	Version() string
+}
 
 // Web3 is the web3 jsonrpc endpoint
 type Web3 struct {
-	d *Dispatcher
+	b Web3Backend
+}
+
+func NewWeb3(b Web3Backend) *Web3 {
+	return &Web3{b: b}
 }
 
 // ClientVersion returns the version of the web3 client (web3_clientVersion)
-func (w *Web3) ClientVersion() (interface{}, error) {
-	return fmt.Sprintf("polygon-sdk [%s]", version.GetVersion()), nil
+func (w *Web3) ClientVersion() (string, error) {
+	return w.b.Version(), nil
 }
 
 // Sha3 returns Keccak-256 (not the standardized SHA3-256) of the given data
-func (w *Web3) Sha3(val string) (interface{}, error) {
-	v, err := hex.DecodeHex(val)
-	if err != nil {
-		return nil, err
-	}
-	dst := keccak.Keccak256(nil, v)
+func (w *Web3) Sha3(val argBytes) (*argBytes, error) {
+	h := sha3.NewLegacyKeccak256()
+	h.Write(val)
+	res := h.Sum(nil)
 
-	return hex.EncodeToHex(dst), nil
+	return argBytesPtr(res), nil
 }

@@ -1,13 +1,12 @@
 package jsonrpc
 
 import (
-	"fmt"
 	"io/ioutil"
+	"log"
 	"net"
 	"net/http"
 
 	"github.com/gorilla/websocket"
-	"github.com/hashicorp/go-hclog"
 )
 
 var upgrader = websocket.Upgrader{}
@@ -39,31 +38,28 @@ func (s serverType) String() string {
 
 // JSONRPC is an API backend
 type JSONRPC struct {
-	logger     hclog.Logger
+	logger     *log.Logger
 	config     *Config
 	dispatcher dispatcherImpl
 }
 
 type dispatcherImpl interface {
-	HandleWs(reqBody []byte, conn wsConn) ([]byte, error)
-	Handle([]byte) ([]byte, error)
+	Handle(reqBody []byte) ([]byte, error)
 }
 
 type Config struct {
-	Store   blockchainInterface
-	Addr    *net.TCPAddr
-	ChainID uint64
+	Addr *net.TCPAddr
 }
 
 // NewJSONRPC returns the JsonRPC http server
-func NewJSONRPC(logger hclog.Logger, config *Config) (*JSONRPC, error) {
+func NewJSONRPC(logger *log.Logger, config *Config, dispatcher *Dispatcher) (*JSONRPC, error) {
 	if config.Addr == nil {
 		config.Addr = defaultHttpAddr
 	}
 	srv := &JSONRPC{
-		logger:     logger.Named("jsonrpc"),
+		logger:     logger,
 		config:     config,
-		dispatcher: newDispatcher(logger, config.Store, config.ChainID),
+		dispatcher: dispatcher,
 	}
 
 	// start http server
@@ -74,7 +70,7 @@ func NewJSONRPC(logger hclog.Logger, config *Config) (*JSONRPC, error) {
 }
 
 func (j *JSONRPC) setupHTTP() error {
-	j.logger.Info("http server started", "addr", j.config.Addr.String())
+	j.logger.Printf("[INFO] http server started: addr=%s", j.config.Addr.String())
 
 	lis, err := net.Listen("tcp", j.config.Addr.String())
 	if err != nil {
@@ -90,7 +86,7 @@ func (j *JSONRPC) setupHTTP() error {
 	}
 	go func() {
 		if err := srv.Serve(lis); err != nil {
-			j.logger.Error("closed http connection", "err", err)
+			j.logger.Printf("[ERROR] closed http connection: %v", err)
 		}
 	}()
 	return nil
@@ -118,11 +114,11 @@ func (j *JSONRPC) handleWs(w http.ResponseWriter, req *http.Request) {
 			break
 		}
 		go func() {
-			resp, err := j.dispatcher.HandleWs(message, wrapConn)
+			resp, err := j.dispatcher.Handle(message)
 			if err != nil {
 				wrapConn.WriteMessage(resp)
 			} else {
-				wrapConn.WriteMessage([]byte(fmt.Sprintf(err.Error())))
+				wrapConn.WriteMessage([]byte(err.Error()))
 			}
 		}()
 	}
@@ -139,10 +135,9 @@ func (j *JSONRPC) handle(w http.ResponseWriter, req *http.Request) {
 
 	handleErr := func(err error) {
 		w.Write([]byte(err.Error()))
-		return
 	}
 	if req.Method == "GET" {
-		w.Write([]byte("PolygonSDK JSON-RPC"))
+		w.Write([]byte("JSON-RPC"))
 		return
 	}
 	if req.Method != "POST" {

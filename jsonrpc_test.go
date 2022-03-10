@@ -1,20 +1,15 @@
 package jsonrpc
 
 import (
-	"fmt"
 	"testing"
 
-	"github.com/hashicorp/go-hclog"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestHTTPServer(t *testing.T) {
-	store := newMockStore()
 	config := &Config{
-		Store: store,
+		Addr: defaultHttpAddr,
 	}
-	srv, err := NewJSONRPC(hclog.NewNullLogger(), config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fmt.Println(srv)
+	_, err := NewJSONRPC(defaultNullLogger, config, nil)
+	assert.NoError(t, err)
 }

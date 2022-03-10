@@ -3,13 +3,10 @@ package jsonrpc
 import (
 	"encoding/json"
 	"fmt"
-	"math/big"
+	"log"
 	"reflect"
 	"strings"
 	"unicode"
-
-	"github.com/0xPolygon/minimal/types"
-	"github.com/hashicorp/go-hclog"
 )
 
 var (
@@ -41,58 +38,14 @@ func (f *funcData) numParams() int {
 	return f.inNum - 1
 }
 
-type endpoints struct {
-	Eth  *Eth
-	Web3 *Web3
-	Net  *Net
-}
-
-type enabledEndpoints map[string]struct{}
-
 // Dispatcher handles jsonrpc requests
 type Dispatcher struct {
-	logger        hclog.Logger
-	store         blockchainInterface
-	serviceMap    map[string]*serviceData
-	endpoints     endpoints
-	filterManager *FilterManager
-	chainID       uint64
+	logger     *log.Logger
+	serviceMap map[string]*serviceData
 }
 
-// newTestDispatcher returns a dispatcher without the filter manager, used for testing
-func newTestDispatcher(logger hclog.Logger, store blockchainInterface) *Dispatcher {
-	d := &Dispatcher{
-		logger: logger.Named("dispatcher"),
-		store:  store,
-	}
-
-	d.registerEndpoints()
-
-	return d
-}
-
-func newDispatcher(logger hclog.Logger, store blockchainInterface, chainID uint64) *Dispatcher {
-	d := &Dispatcher{
-		logger:  logger.Named("dispatcher"),
-		store:   store,
-		chainID: chainID,
-	}
-	d.registerEndpoints()
-	if store != nil {
-		d.filterManager = NewFilterManager(logger, store)
-		go d.filterManager.Run()
-	}
-	return d
-}
-
-func (d *Dispatcher) registerEndpoints() {
-	d.endpoints.Eth = &Eth{d}
-	d.endpoints.Net = &Net{d}
-	d.endpoints.Web3 = &Web3{d}
-
-	d.registerService("eth", d.endpoints.Eth)
-	d.registerService("net", d.endpoints.Net)
-	d.registerService("web3", d.endpoints.Web3)
+func NewDispatcher(logger *log.Logger) *Dispatcher {
+	return &Dispatcher{logger: logger}
 }
 
 func (d *Dispatcher) getFnHandler(req Request) (*serviceData, *funcData, error) {
@@ -118,85 +71,10 @@ type wsConn interface {
 	WriteMessage(b []byte) error
 }
 
-func (d *Dispatcher) handleSubscribe(req Request, conn wsConn) (string, error) {
-	var params []interface{}
-	if err := json.Unmarshal(req.Params, &params); err != nil {
-		return "", invalidJSONRequest
-	}
-	if len(params) == 0 {
-		return "", invalidJSONRequest
-	}
-
-	subscribeMethod, ok := params[0].(string)
-	if !ok {
-		return "", fmt.Errorf("subscribe method '%s' not found", params[0])
-	}
-
-	var filterID string
-	if subscribeMethod == "newHeads" {
-		filterID = d.filterManager.NewBlockFilter(conn)
-
-	} else if subscribeMethod == "logs" {
-		logFilter, err := decodeLogFilterFromInterface(params[1])
-		if err != nil {
-			return "", err
-		}
-		filterID = d.filterManager.NewLogFilter(logFilter, conn)
-
-	} else {
-		return "", fmt.Errorf("subscribe method %s not found", subscribeMethod)
-	}
-
-	return filterID, nil
-}
-
-func (d *Dispatcher) handleUnsubscribe(req Request) (bool, error) {
-	var params []interface{}
-	if err := json.Unmarshal(req.Params, &params); err != nil {
-		return false, invalidJSONRequest
-	}
-	if len(params) != 1 {
-		return false, invalidJSONRequest
-	}
-
-	filterID, ok := params[0].(string)
-	if !ok {
-		return false, fmt.Errorf("unsubscribe filter not found")
-	}
-
-	return d.filterManager.Uninstall(filterID), nil
-}
-
-func (d *Dispatcher) HandleWs(reqBody []byte, conn wsConn) ([]byte, error) {
+func (d *Dispatcher) Handle(reqBody []byte) ([]byte, error) {
 	var req Request
 	if err := json.Unmarshal(reqBody, &req); err != nil {
 		return nil, invalidJSONRequest
-	}
-
-	// if the request method is eth_subscribe we need to create a
-	// new filter with ws connection
-	if req.Method == "eth_subscribe" {
-		filterID, err := d.handleSubscribe(req, conn)
-		if err != nil {
-			return nil, err
-		}
-
-		resp := fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"result":"%s"}`, req.ID, filterID)
-		return []byte(resp), nil
-	}
-
-	if req.Method == "eth_unsubscribe" {
-		ok, err := d.handleUnsubscribe(req)
-		if err != nil {
-			return nil, err
-		}
-
-		res := "false"
-		if ok {
-			res = "true"
-		}
-		resp := fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"result":"%s"}`, req.ID, res)
-		return []byte(resp), nil
 	}
 
 	// its a normal query that we handle with the dispatcher
@@ -207,16 +85,8 @@ func (d *Dispatcher) HandleWs(reqBody []byte, conn wsConn) ([]byte, error) {
 	return resp, nil
 }
 
-func (d *Dispatcher) Handle(reqBody []byte) ([]byte, error) {
-	var req Request
-	if err := json.Unmarshal(reqBody, &req); err != nil {
-		return nil, invalidJSONRequest
-	}
-	return d.handleReq(req)
-}
-
 func (d *Dispatcher) handleReq(req Request) ([]byte, error) {
-	d.logger.Debug("request", "method", req.Method, "id", req.ID)
+	d.logger.Printf("[DEBUG] request: method=%s, id=%s", req.Method, req.ID)
 
 	service, fd, err := d.getFnHandler(req)
 	if err != nil {
@@ -224,17 +94,21 @@ func (d *Dispatcher) handleReq(req Request) ([]byte, error) {
 	}
 
 	inArgs := make([]reflect.Value, fd.inNum)
+
+	// add service
 	inArgs[0] = service.sv
 
-	inputs := make([]interface{}, fd.numParams())
-	for i := 0; i < fd.inNum-1; i++ {
-		val := reflect.New(fd.reqt[i+1])
+	// decode function input params from request
+	typs := fd.reqt[1:]
+	inputs := make([]interface{}, len(typs))
+	for i := 0; i < len(typs); i++ {
+		val := reflect.New(typs[i])
 		inputs[i] = val.Interface()
 		inArgs[i+1] = val.Elem()
 	}
 
 	if err := json.Unmarshal(req.Params, &inputs); err != nil {
-		return nil, invalidJSONRequest
+		return nil, invalidArguments(req.Method)
 	}
 
 	output := fd.fv.Call(inArgs)
@@ -265,16 +139,16 @@ func (d *Dispatcher) handleReq(req Request) ([]byte, error) {
 }
 
 func (d *Dispatcher) internalError(method string, err error) error {
-	d.logger.Error("failed to dispatch", "method", method, "err", err)
+	d.logger.Printf("[ERROR] failed to dispatch: method=%s, err=%v", method, err)
 	return internalError
 }
 
-func (d *Dispatcher) registerService(serviceName string, service interface{}) {
+func (d *Dispatcher) Register(serviceName string, service interface{}) {
 	if d.serviceMap == nil {
 		d.serviceMap = map[string]*serviceData{}
 	}
 	if serviceName == "" {
-		panic(fmt.Sprintf("jsonrpc: serviceName cannot be empty"))
+		panic("jsonrpc: serviceName cannot be empty")
 	}
 
 	st := reflect.TypeOf(service)
@@ -299,13 +173,13 @@ func (d *Dispatcher) registerService(serviceName string, service interface{}) {
 		if fd.inNum, fd.reqt, err = validateFunc(funcName, fd.fv, true); err != nil {
 			panic(fmt.Sprintf("jsonrpc: %s", err))
 		}
+
 		// check if last item is a pointer
-		if fd.numParams() != 0 {
-			last := fd.reqt[fd.numParams()]
-			if last.Kind() == reflect.Ptr {
-				fd.isDyn = true
-			}
+		last := fd.reqt[fd.numParams()]
+		if last.Kind() == reflect.Ptr {
+			fd.isDyn = true
 		}
+
 		funcMap[name] = fd
 	}
 
@@ -313,13 +187,7 @@ func (d *Dispatcher) registerService(serviceName string, service interface{}) {
 		sv:      reflect.ValueOf(service),
 		funcMap: funcMap,
 	}
-}
 
-func removePtr(t reflect.Type) reflect.Type {
-	for t.Kind() == reflect.Ptr {
-		t = t.Elem()
-	}
-	return t
 }
 
 func validateFunc(funcName string, fv reflect.Value, isMethod bool) (inNum int, reqt []reflect.Type, err error) {
@@ -337,6 +205,7 @@ func validateFunc(funcName string, fv reflect.Value, isMethod bool) (inNum int, 
 	inNum = ft.NumIn()
 	outNum := ft.NumOut()
 
+	// make sure output arguments have two parameters and the second one is an error
 	if outNum != 2 {
 		err = fmt.Errorf("unexpected number of output arguments in the function '%s': %d. Expected 2", funcName, outNum)
 		return
@@ -371,103 +240,4 @@ func lowerCaseFirst(str string) string {
 		return string(unicode.ToLower(v)) + str[i+1:]
 	}
 	return ""
-}
-
-func (d *Dispatcher) getBlockHeaderImpl(number BlockNumber) (*types.Header, error) {
-	switch number {
-	case LatestBlockNumber:
-		return d.store.Header(), nil
-
-	case EarliestBlockNumber:
-		return nil, fmt.Errorf("fetching the earliest header is not supported")
-
-	case PendingBlockNumber:
-		return nil, fmt.Errorf("fetching the pending header is not supported")
-
-	default:
-		// Convert the block number from hex to uint64
-		header, ok := d.store.GetHeaderByNumber(uint64(number))
-		if !ok {
-			return nil, fmt.Errorf("Error fetching block number %d header", uint64(number))
-		}
-		return header, nil
-	}
-}
-
-func (d *Dispatcher) getNextNonce(address types.Address, number BlockNumber) (uint64, error) {
-	if number == PendingBlockNumber {
-		res, ok := d.store.GetNonce(address)
-		if ok {
-			return res, nil
-		}
-		number = LatestBlockNumber
-	}
-	header, err := d.getBlockHeaderImpl(number)
-	if err != nil {
-		return 0, err
-	}
-	acc, err := d.store.GetAccount(header.StateRoot, address)
-	if err != nil {
-		return 0, err
-	}
-	return acc.Nonce, nil
-}
-
-func (d *Dispatcher) decodeTxn(arg *txnArgs) (*types.Transaction, error) {
-	// set default values
-	if arg.From == nil {
-		return nil, fmt.Errorf("from is empty")
-	}
-	if arg.Data != nil && arg.Input != nil {
-		return nil, fmt.Errorf("both input and data cannot be set")
-	}
-	if arg.Nonce == nil {
-		// get nonce from the pool
-		nonce, err := d.getNextNonce(*arg.From, LatestBlockNumber)
-		if err != nil {
-			return nil, err
-		}
-		arg.Nonce = argUintPtr(nonce)
-	}
-	if arg.Value == nil {
-		arg.Value = argBytesPtr([]byte{})
-	}
-	if arg.GasPrice == nil {
-		// use the suggested gas price
-		arg.GasPrice = argBytesPtr(d.store.GetAvgGasPrice().Bytes())
-	}
-
-	var input []byte
-	if arg.Data != nil {
-		input = *arg.Data
-	} else if arg.Input != nil {
-		input = *arg.Input
-	}
-	if arg.To == nil {
-		if input == nil {
-			return nil, fmt.Errorf("contract creation without data provided")
-		}
-	}
-	if input == nil {
-		input = []byte{}
-	}
-
-	if arg.Gas == nil {
-		// TODO
-		arg.Gas = argUintPtr(1000000)
-	}
-
-	txn := &types.Transaction{
-		From:     *arg.From,
-		Gas:      uint64(*arg.Gas),
-		GasPrice: new(big.Int).SetBytes(*arg.GasPrice),
-		Value:    new(big.Int).SetBytes(*arg.Value),
-		Input:    input,
-		Nonce:    uint64(*arg.Nonce),
-	}
-	if arg.To != nil {
-		txn.To = arg.To
-	}
-	txn.ComputeHash()
-	return txn, nil
 }

@@ -4,19 +4,16 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/0xPolygon/minimal/types"
+	"github.com/umbracle/ethgo"
 )
 
 var (
-	addr1 = types.StringToAddress("1")
-	addr2 = types.StringToAddress("2")
-	addr3 = types.StringToAddress("3")
-	addr5 = types.StringToAddress("5")
+	addr1 = ethgo.HexToAddress("1")
+	addr2 = ethgo.HexToAddress("2")
 
-	hash1 = types.StringToHash("1")
-	hash2 = types.StringToHash("2")
-	hash3 = types.StringToHash("3")
-	hash4 = types.StringToHash("4")
+	hash1 = ethgo.HexToHash("1")
+	hash2 = ethgo.HexToHash("2")
+	hash3 = ethgo.HexToHash("3")
 )
 
 func TestFilterDecode(t *testing.T) {
@@ -44,7 +41,7 @@ func TestFilterDecode(t *testing.T) {
 			&LogFilter{
 				fromBlock: LatestBlockNumber,
 				toBlock:   LatestBlockNumber,
-				Addresses: []types.Address{
+				Addresses: []ethgo.Address{
 					addr1,
 				},
 			},
@@ -59,7 +56,7 @@ func TestFilterDecode(t *testing.T) {
 			&LogFilter{
 				fromBlock: LatestBlockNumber,
 				toBlock:   LatestBlockNumber,
-				Addresses: []types.Address{
+				Addresses: []ethgo.Address{
 					addr1,
 					addr2,
 				},
@@ -83,7 +80,7 @@ func TestFilterDecode(t *testing.T) {
 			&LogFilter{
 				fromBlock: LatestBlockNumber,
 				toBlock:   LatestBlockNumber,
-				Topics: [][]types.Hash{
+				Topics: [][]ethgo.Hash{
 					{
 						hash1,
 					},
@@ -143,20 +140,20 @@ func TestFilterDecode(t *testing.T) {
 func TestFilterMatch(t *testing.T) {
 	cases := []struct {
 		filter LogFilter
-		log    *types.Log
+		log    *ethgo.Log
 		match  bool
 	}{
 		{
 			// correct, exact match
 			LogFilter{
-				Topics: [][]types.Hash{
+				Topics: [][]ethgo.Hash{
 					{
 						hash1,
 					},
 				},
 			},
-			&types.Log{
-				Topics: []types.Hash{
+			&ethgo.Log{
+				Topics: []ethgo.Hash{
 					hash1,
 				},
 			},
@@ -165,7 +162,7 @@ func TestFilterMatch(t *testing.T) {
 		{
 			// bad, the filter has two hashes
 			LogFilter{
-				Topics: [][]types.Hash{
+				Topics: [][]ethgo.Hash{
 					{
 						hash1,
 					},
@@ -174,8 +171,8 @@ func TestFilterMatch(t *testing.T) {
 					},
 				},
 			},
-			&types.Log{
-				Topics: []types.Hash{
+			&ethgo.Log{
+				Topics: []ethgo.Hash{
 					hash1,
 				},
 			},
@@ -184,15 +181,15 @@ func TestFilterMatch(t *testing.T) {
 		{
 			// correct, wildcard in one hash
 			LogFilter{
-				Topics: [][]types.Hash{
+				Topics: [][]ethgo.Hash{
 					{},
 					{
 						hash2,
 					},
 				},
 			},
-			&types.Log{
-				Topics: []types.Hash{
+			&ethgo.Log{
+				Topics: []ethgo.Hash{
 					hash1,
 					hash2,
 				},
@@ -202,7 +199,7 @@ func TestFilterMatch(t *testing.T) {
 		{
 			// correct, more topics than in filter
 			LogFilter{
-				Topics: [][]types.Hash{
+				Topics: [][]ethgo.Hash{
 					{
 						hash1,
 					},
@@ -211,8 +208,8 @@ func TestFilterMatch(t *testing.T) {
 					},
 				},
 			},
-			&types.Log{
-				Topics: []types.Hash{
+			&ethgo.Log{
+				Topics: []ethgo.Hash{
 					hash1,
 					hash2,
 					hash3,

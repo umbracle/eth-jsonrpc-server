@@ -1,2 +1,2 @@
 
-# Ethereum JSON-RPC server
+# Eth-jsonrpc-server
