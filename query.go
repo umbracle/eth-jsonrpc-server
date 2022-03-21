@@ -4,75 +4,57 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/0xPolygon/minimal/types"
+	"github.com/umbracle/ethgo"
 )
 
 // LogFilter is a filter for logs
 type LogFilter struct {
-	BlockHash *types.Hash
+	BlockHash *ethgo.Hash
 
 	fromBlock BlockNumber
 	toBlock   BlockNumber
 
-	Addresses []types.Address
-	Topics    [][]types.Hash
+	Addresses []ethgo.Address
+	Topics    [][]ethgo.Hash
 }
 
 // addTopicSet adds specific topics to the log filter topics
 func (l *LogFilter) addTopicSet(set ...string) error {
 	if l.Topics == nil {
-		l.Topics = [][]types.Hash{}
+		l.Topics = [][]ethgo.Hash{}
 	}
 
-	res := []types.Hash{}
+	res := []ethgo.Hash{}
 	for _, i := range set {
-		item := types.Hash{}
+		item := ethgo.Hash{}
 		if err := item.UnmarshalText([]byte(i)); err != nil {
 			return err
 		}
-
 		res = append(res, item)
 	}
 
 	l.Topics = append(l.Topics, res)
-
 	return nil
 }
 
 // addAddress Adds the address to the log filter
 func (l *LogFilter) addAddress(raw string) error {
 	if l.Addresses == nil {
-		l.Addresses = []types.Address{}
+		l.Addresses = []ethgo.Address{}
 	}
-	addr := types.Address{}
+	addr := ethgo.Address{}
 	if err := addr.UnmarshalText([]byte(raw)); err != nil {
 		return err
 	}
 
 	l.Addresses = append(l.Addresses, addr)
-
 	return nil
-}
-
-func decodeLogFilterFromInterface(i interface{}) (*LogFilter, error) {
-	// once the log filter is decoded as map[string]interface we cannot use unmarshal json
-	raw, err := json.Marshal(i)
-	if err != nil {
-		return nil, err
-	}
-
-	filter := &LogFilter{}
-	if err := json.Unmarshal(raw, &filter); err != nil {
-		return nil, err
-	}
-
-	return filter, nil
 }
 
 // UnmarshalJSON decodes a json object
 func (l *LogFilter) UnmarshalJSON(data []byte) error {
 	var obj struct {
-		BlockHash *types.Hash   `json:"blockHash"`
+		BlockHash *ethgo.Hash   `json:"blockHash"`
 		FromBlock string        `json:"fromBlock"`
 		ToBlock   string        `json:"toBlock"`
 		Address   interface{}   `json:"address"`
@@ -168,7 +150,7 @@ func (l *LogFilter) UnmarshalJSON(data []byte) error {
 }
 
 // Match returns whether the receipt includes topics for this filter
-func (l *LogFilter) Match(log *types.Log) bool {
+func (l *LogFilter) Match(log *ethgo.Log) bool {
 	// check addresses
 	if len(l.Addresses) > 0 {
 		match := false
