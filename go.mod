@@ -1,4 +1,4 @@
-module github.com/0xPolygon/eth-jsonrpc-server
+module github.com/umbracle/eth-jsonrpc-server
 
 go 1.15
 
