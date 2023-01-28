@@ -212,11 +212,11 @@ type mockStore struct {
 	receipts     map[ethgo.Hash][]*ethgo.Receipt
 }
 
-func (m *mockStore) GetAccount(root ethgo.Hash, addr ethgo.Address) (*Account, error) {
+func (m *mockStore) GetAccount(root ethgo.Hash, addr ethgo.Address) (*Account, bool, error) {
 	panic("implement me")
 }
 
-func (m *mockStore) GetStorage(root ethgo.Hash, addr ethgo.Address, slot ethgo.Hash) ([]byte, error) {
+func (m *mockStore) GetStorage(root ethgo.Hash, addr ethgo.Address, slot ethgo.Hash) ([]byte, bool, error) {
 	panic("implement me")
 }
 

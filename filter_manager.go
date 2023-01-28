@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/umbracle/eth-jsonrpc-server/jsonrpc"
 	"github.com/umbracle/ethgo"
 )
 
@@ -33,7 +34,7 @@ type Filter struct {
 	timestamp time.Time
 
 	// websocket connection
-	ws wsConn
+	stream jsonrpc.Stream
 }
 
 func (f *Filter) getFilterUpdates() (string, error) {
@@ -58,7 +59,7 @@ func (f *Filter) getFilterUpdates() (string, error) {
 }
 
 func (f *Filter) isWS() bool {
-	return f.ws != nil
+	return f.stream != nil
 }
 
 var ethSubscriptionTemplate = `{
@@ -72,7 +73,7 @@ var ethSubscriptionTemplate = `{
 
 func (f *Filter) sendMessage(msg string) error {
 	res := fmt.Sprintf(ethSubscriptionTemplate, f.id, msg)
-	if err := f.ws.WriteMessage([]byte(res)); err != nil {
+	if err := f.stream.WriteMessage([]byte(res)); err != nil {
 		return err
 	}
 	return nil
@@ -315,20 +316,20 @@ func (f *FilterManager) Uninstall(id string) bool {
 	return true
 }
 
-func (f *FilterManager) NewBlockFilter(ws wsConn) string {
-	return f.addFilter(nil, ws)
+func (f *FilterManager) NewBlockFilter(stream jsonrpc.Stream) string {
+	return f.addFilter(nil, stream)
 }
 
-func (f *FilterManager) NewLogFilter(logFilter *LogFilter, ws wsConn) string {
-	return f.addFilter(logFilter, ws)
+func (f *FilterManager) NewLogFilter(logFilter *LogFilter, stream jsonrpc.Stream) string {
+	return f.addFilter(logFilter, stream)
 }
 
-func (f *FilterManager) addFilter(logFilter *LogFilter, ws wsConn) string {
+func (f *FilterManager) addFilter(logFilter *LogFilter, stream jsonrpc.Stream) string {
 	f.lock.Lock()
 
 	filter := &Filter{
-		id: uuid.New().String(),
-		ws: ws,
+		id:     uuid.New().String(),
+		stream: stream,
 	}
 
 	if logFilter == nil {

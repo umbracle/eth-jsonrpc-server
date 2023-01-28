@@ -7,5 +7,5 @@ require (
 	github.com/gorilla/websocket v1.4.2
 	github.com/stretchr/testify v1.7.0
 	github.com/umbracle/ethgo v0.1.0
-	golang.org/x/crypto v0.0.0-20211215153901-e495a2d5b3d3
+	golang.org/x/crypto v0.0.0-20211215153901-e495a2d5b3d3 // indirect
 )

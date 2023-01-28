@@ -3,6 +3,7 @@ package jsonrpc
 import (
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"reflect"
 	"strings"
@@ -44,8 +45,12 @@ type Dispatcher struct {
 	serviceMap map[string]*serviceData
 }
 
-func NewDispatcher(logger *log.Logger) *Dispatcher {
-	return &Dispatcher{logger: logger}
+func NewDispatcher() *Dispatcher {
+	return &Dispatcher{logger: log.New(ioutil.Discard, "", 0)}
+}
+
+func (d *Dispatcher) SetLogger(logger *log.Logger) {
+	d.logger = logger
 }
 
 func (d *Dispatcher) getFnHandler(req Request) (*serviceData, *funcData, error) {
@@ -67,26 +72,62 @@ func (d *Dispatcher) getFnHandler(req Request) (*serviceData, *funcData, error) 
 	return service, fd, nil
 }
 
-type wsConn interface {
+type Stream interface {
 	WriteMessage(b []byte) error
 }
 
 func (d *Dispatcher) Handle(reqBody []byte) ([]byte, error) {
-	var req Request
-	if err := json.Unmarshal(reqBody, &req); err != nil {
-		return nil, invalidJSONRequest
+	if len(reqBody) == 0 {
+		return nil, fmt.Errorf("empty request")
 	}
 
-	// its a normal query that we handle with the dispatcher
-	resp, err := d.handleReq(req)
-	if err != nil {
-		return nil, err
+	isBatch := reqBody[0] == '['
+
+	var reqs []Request
+	if isBatch {
+		// batch requests
+		if err := json.Unmarshal(reqBody, &reqs); err != nil {
+			return nil, invalidJSONRequest
+		}
+	} else {
+		// single request
+		var req Request
+		if err := json.Unmarshal(reqBody, &reqs); err != nil {
+			return nil, invalidJSONRequest
+		}
+		reqs = append(reqs, req)
 	}
-	return resp, nil
+
+	out := []byte{}
+	if isBatch {
+		out = append(out, []byte("[")...)
+	}
+
+	for _, req := range reqs {
+		resp, err := d.handleReq(req)
+		if err != nil {
+			return nil, err
+		}
+		respBytes, err := json.Marshal(resp)
+		if err != nil {
+			return nil, d.internalError(req.Method, err)
+		}
+		out = append(out, respBytes...)
+	}
+
+	if isBatch {
+		out = append(out, []byte("]")...)
+	}
+
+	return out, nil
 }
 
-func (d *Dispatcher) handleReq(req Request) ([]byte, error) {
+func (d *Dispatcher) handleReq(req Request) (*Response, error) {
 	d.logger.Printf("[DEBUG] request: method=%s, id=%s", req.Method, req.ID)
+
+	if req.Params == nil {
+		req.Params = []byte("[]")
+	}
 
 	service, fd, err := d.getFnHandler(req)
 	if err != nil {
@@ -126,16 +167,12 @@ func (d *Dispatcher) handleReq(req Request) ([]byte, error) {
 		}
 	}
 
-	resp := Response{
+	resp := &Response{
 		ID:      req.ID,
 		JSONRPC: "2.0",
 		Result:  data,
 	}
-	respBytes, err := json.Marshal(resp)
-	if err != nil {
-		return nil, d.internalError(req.Method, err)
-	}
-	return respBytes, nil
+	return resp, nil
 }
 
 func (d *Dispatcher) internalError(method string, err error) error {
@@ -187,7 +224,6 @@ func (d *Dispatcher) Register(serviceName string, service interface{}) {
 		sv:      reflect.ValueOf(service),
 		funcMap: funcMap,
 	}
-
 }
 
 func validateFunc(funcName string, fv reflect.Value, isMethod bool) (inNum int, reqt []reflect.Type, err error) {
