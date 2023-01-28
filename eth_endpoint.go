@@ -60,11 +60,7 @@ func (e *Eth) BlockNumber() (argUint64, error) {
 
 // SendRawTransaction sends a raw transaction
 func (e *Eth) SendRawTransaction(input argBytes) (argBytes, error) {
-	tx := &ethgo.Transaction{}
-	if err := tx.UnmarshalRLP(input); err != nil {
-		return nil, err
-	}
-	hash, err := e.b.AddTx(tx)
+	hash, err := e.b.AddTx(input)
 	if err != nil {
 		return nil, err
 	}
@@ -109,9 +105,12 @@ func (e *Eth) GetStorageAt(address ethgo.Address, index ethgo.Hash, number Block
 	}
 
 	// Get the storage for the passed in location
-	result, err := e.b.GetStorage(header.StateRoot, address, index)
+	result, found, err := e.b.GetStorage(header.StateRoot, address, index)
 	if err != nil {
 		return nil, err
+	}
+	if !found {
+		return argBytesPtr([]byte{}), nil
 	}
 	return argBytesPtr(result), nil
 }
@@ -203,6 +202,8 @@ func (e *Eth) GetLogs(filterOptions *LogFilter) ([]*ethgo.Log, error) {
 	return logs, nil
 }
 
+var zero = big.NewInt(0)
+
 // GetBalance returns the account's balance at the referenced block
 func (e *Eth) GetBalance(address ethgo.Address, number BlockNumber) (*argBig, error) {
 	header, err := e.getBlockHeaderImpl(number)
@@ -210,9 +211,12 @@ func (e *Eth) GetBalance(address ethgo.Address, number BlockNumber) (*argBig, er
 		return nil, err
 	}
 
-	acc, err := e.b.GetAccount(header.StateRoot, address)
-	if acc == nil || err != nil {
+	acc, found, err := e.b.GetAccount(header.StateRoot, address)
+	if err != nil {
 		return nil, err
+	}
+	if !found {
+		return argBigPtr(zero), err
 	}
 	return argBigPtr(acc.Balance), nil
 }
@@ -232,9 +236,12 @@ func (e *Eth) GetCode(address ethgo.Address, number BlockNumber) (argBytes, erro
 	if err != nil {
 		return nil, err
 	}
-	acc, err := e.b.GetAccount(header.StateRoot, address)
-	if acc == nil || err != nil {
+	acc, found, err := e.b.GetAccount(header.StateRoot, address)
+	if err != nil {
 		return nil, err
+	}
+	if !found {
+		return argBytes([]byte{}), nil
 	}
 	return e.b.GetCode(ethgo.BytesToHash(acc.CodeHash))
 }
@@ -279,9 +286,9 @@ func (e *Eth) getBlockHeaderImpl(number BlockNumber) (*ethgo.Block, error) {
 
 	default:
 		// Convert the block number from hex to uint64
-		header, ok := e.b.GetHeaderByNumber(uint64(number))
+		header, ok := e.b.GetBlockByNumber(uint64(number), false)
 		if !ok {
-			return nil, fmt.Errorf("Error fetching block number %d header", uint64(number))
+			return nil, fmt.Errorf("error fetching block number %d header", uint64(number))
 		}
 		return header, nil
 	}
@@ -289,7 +296,7 @@ func (e *Eth) getBlockHeaderImpl(number BlockNumber) (*ethgo.Block, error) {
 
 func (e *Eth) getNextNonce(address ethgo.Address, number BlockNumber) (uint64, error) {
 	if number == PendingBlockNumber {
-		res, ok := e.b.GetNonce(address)
+		res, ok := e.b.GetPendingNonce(address)
 		if ok {
 			return res, nil
 		}
@@ -299,9 +306,12 @@ func (e *Eth) getNextNonce(address ethgo.Address, number BlockNumber) (uint64, e
 	if err != nil {
 		return 0, err
 	}
-	acc, err := e.b.GetAccount(header.StateRoot, address)
+	acc, found, err := e.b.GetAccount(header.StateRoot, address)
 	if err != nil {
 		return 0, err
+	}
+	if !found {
+		return 0, nil
 	}
 	return acc.Nonce, nil
 }

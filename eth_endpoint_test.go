@@ -7,12 +7,13 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/umbracle/eth-jsonrpc-server/jsonrpc"
 	"github.com/umbracle/ethgo"
 )
 
 func TestEth_Register(t *testing.T) {
 	eth := NewEth(&nullBlockchainInterface{})
-	d := &Dispatcher{logger: defaultNullLogger}
+	d := jsonrpc.NewDispatcher()
 	d.Register("eth", eth)
 }
 
@@ -65,12 +66,12 @@ func (m *mockAccountStore) Header() *ethgo.Block {
 	return &ethgo.Block{}
 }
 
-func (m *mockAccountStore) GetAccount(root ethgo.Hash, addr ethgo.Address) (*Account, error) {
+func (m *mockAccountStore) GetAccount(root ethgo.Hash, addr ethgo.Address) (*Account, bool, error) {
 	acct, ok := m.accounts[addr]
 	if !ok {
-		return nil, nil
+		return nil, false, nil
 	}
-	return acct.account, nil
+	return acct.account, true, nil
 }
 
 func (m *mockAccountStore) GetCode(hash ethgo.Hash) ([]byte, error) {
@@ -82,14 +83,14 @@ func (m *mockAccountStore) GetCode(hash ethgo.Hash) ([]byte, error) {
 	return nil, fmt.Errorf("code not found")
 }
 
-func (m *mockAccountStore) GetStorage(root ethgo.Hash, addr ethgo.Address, slot ethgo.Hash) ([]byte, error) {
+func (m *mockAccountStore) GetStorage(root ethgo.Hash, addr ethgo.Address, slot ethgo.Hash) ([]byte, bool, error) {
 	acct := m.accounts[addr]
 
 	val, ok := acct.storage[slot]
 	if !ok {
-		return nil, nil
+		return nil, false, nil
 	}
-	return val[:], nil
+	return val[:], true, nil
 }
 
 type mockBlockStore struct {
@@ -331,12 +332,12 @@ func TestEth_State_GetStorageAt(t *testing.T) {
 type mockStoreTxn struct {
 	nullBlockchainInterface
 
-	txn *ethgo.Transaction
+	txn []byte
 }
 
-func (m *mockStoreTxn) AddTx(tx *ethgo.Transaction) (ethgo.Hash, error) {
+func (m *mockStoreTxn) AddTx(tx []byte) (ethgo.Hash, error) {
 	m.txn = tx
-	return tx.Hash, nil
+	return ethgo.Hash{0x1}, nil
 }
 
 func (m *mockStoreTxn) GetNonce(addr ethgo.Address) (uint64, bool) {
@@ -347,17 +348,8 @@ func TestEth_TxnPool_SendRawTransaction(t *testing.T) {
 	b := &mockStoreTxn{}
 	eth := NewEth(b)
 
-	txn := &ethgo.Transaction{
-		From: addr0,
-	}
-	hash1, err := txn.GetHash()
+	hash, err := eth.SendRawTransaction(argBytes([]byte{0x1}))
 	assert.NoError(t, err)
 
-	raw, err := txn.MarshalRLPTo(nil)
-	assert.NoError(t, err)
-
-	hash2, err := eth.SendRawTransaction(argBytes(raw))
-	assert.NoError(t, err)
-
-	assert.Equal(t, hash1[:], hash2.Bytes())
+	assert.Equal(t, hash.Bytes(), ethgo.Hash{0x1}.Bytes())
 }

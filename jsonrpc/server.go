@@ -2,7 +2,6 @@ package jsonrpc
 
 import (
 	"io/ioutil"
-	"log"
 	"net"
 	"net/http"
 
@@ -10,10 +9,6 @@ import (
 )
 
 var upgrader = websocket.Upgrader{}
-
-var (
-	defaultHttpAddr = &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8545}
-)
 
 type serverType int
 
@@ -36,9 +31,7 @@ func (s serverType) String() string {
 	}
 }
 
-// JSONRPC is an API backend
-type JSONRPC struct {
-	logger     *log.Logger
+type Server struct {
 	config     *Config
 	dispatcher dispatcherImpl
 }
@@ -47,19 +40,15 @@ type dispatcherImpl interface {
 	Handle(reqBody []byte) ([]byte, error)
 }
 
-type Config struct {
-	Addr *net.TCPAddr
-}
-
-// NewJSONRPC returns the JsonRPC http server
-func NewJSONRPC(logger *log.Logger, config *Config, dispatcher *Dispatcher) (*JSONRPC, error) {
-	if config.Addr == nil {
-		config.Addr = defaultHttpAddr
+func NewServer(opts ...ConfigOption) (*Server, error) {
+	config := DefaultConfig()
+	for _, opt := range opts {
+		opt(config)
 	}
-	srv := &JSONRPC{
-		logger:     logger,
+
+	srv := &Server{
 		config:     config,
-		dispatcher: dispatcher,
+		dispatcher: NewDispatcher(),
 	}
 
 	// start http server
@@ -69,10 +58,15 @@ func NewJSONRPC(logger *log.Logger, config *Config, dispatcher *Dispatcher) (*JS
 	return srv, nil
 }
 
-func (j *JSONRPC) setupHTTP() error {
-	j.logger.Printf("[INFO] http server started: addr=%s", j.config.Addr.String())
+func (j *Server) setupHTTP() error {
+	addr, err := net.ResolveTCPAddr("tcp", j.config.Addr)
+	if err != nil {
+		return err
+	}
 
-	lis, err := net.Listen("tcp", j.config.Addr.String())
+	j.config.Logger.Printf("[INFO] http server started: addr=%s", addr.String())
+
+	lis, err := net.Listen("tcp", addr.String())
 	if err != nil {
 		return err
 	}
@@ -86,7 +80,7 @@ func (j *JSONRPC) setupHTTP() error {
 	}
 	go func() {
 		if err := srv.Serve(lis); err != nil {
-			j.logger.Printf("[ERROR] closed http connection: %v", err)
+			j.config.Logger.Printf("[ERROR] closed http connection: %v", err)
 		}
 	}()
 	return nil
@@ -100,7 +94,7 @@ func (w *wrapWsConn) WriteMessage(b []byte) error {
 	return w.conn.WriteMessage(0, b)
 }
 
-func (j *JSONRPC) handleWs(w http.ResponseWriter, req *http.Request) {
+func (j *Server) handleWs(w http.ResponseWriter, req *http.Request) {
 	c, err := upgrader.Upgrade(w, req, nil)
 	if err != nil {
 		return
@@ -124,7 +118,7 @@ func (j *JSONRPC) handleWs(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (j *JSONRPC) handle(w http.ResponseWriter, req *http.Request) {
+func (j *Server) handle(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")

@@ -63,16 +63,13 @@ type blockchainInterface interface {
 	Call(tx *ethgo.Transaction, header *ethgo.Block) ([]byte, error)
 
 	// AddTx adds a new transaction to the tx pool
-	AddTx(tx *ethgo.Transaction) (ethgo.Hash, error)
+	AddTx(tx []byte) (ethgo.Hash, error)
 
 	// GetTransactionByHash returns a transaction by its hash
 	GetTransactionByHash(hash ethgo.Hash) (*TransactionResult, error)
 
 	// SubscribeEvents subscribes for chain head events
 	SubscribeEvents() Subscription
-
-	// GetHeaderByNumber returns the header by number
-	GetHeaderByNumber(block uint64) (*ethgo.Block, bool)
 
 	// GetAvgGasPrice returns the average gas price
 	GetAvgGasPrice() *big.Int
@@ -83,14 +80,14 @@ type blockchainInterface interface {
 	// GetBlockByNumber returns a block using the provided number
 	GetBlockByNumber(num uint64, full bool) (*ethgo.Block, bool)
 
-	// GetNonce returns the next nonce for this address
-	GetNonce(addr ethgo.Address) (uint64, bool)
+	// GetPendingNonce returns the next nonce for this address on the transaction pool
+	GetPendingNonce(addr ethgo.Address) (uint64, bool)
 
 	// GetAccount returns the account object for a given address
-	GetAccount(root ethgo.Hash, addr ethgo.Address) (*Account, error)
+	GetAccount(root ethgo.Hash, addr ethgo.Address) (*Account, bool, error)
 
 	// GetStorage returns the storage slot for a given address
-	GetStorage(root ethgo.Hash, addr ethgo.Address, slot ethgo.Hash) ([]byte, error)
+	GetStorage(root ethgo.Hash, addr ethgo.Address, slot ethgo.Hash) ([]byte, bool, error)
 
 	// GetCode returns a code by its hash
 	GetCode(hash ethgo.Hash) ([]byte, error)
@@ -134,7 +131,7 @@ func (b *nullBlockchainInterface) Call(tx *ethgo.Transaction, header *ethgo.Bloc
 	return nil, nil
 }
 
-func (b *nullBlockchainInterface) AddTx(tx *ethgo.Transaction) (ethgo.Hash, error) {
+func (b *nullBlockchainInterface) AddTx(tx []byte) (ethgo.Hash, error) {
 	return ethgo.Hash{}, nil
 }
 
@@ -162,7 +159,7 @@ func (b *nullBlockchainInterface) GetBlockByNumber(num uint64, full bool) (*ethg
 	return nil, false
 }
 
-func (b *nullBlockchainInterface) GetNonce(addr ethgo.Address) (uint64, bool) {
+func (b *nullBlockchainInterface) GetPendingNonce(addr ethgo.Address) (uint64, bool) {
 	return 0, false
 }
 
@@ -170,12 +167,12 @@ func (b *nullBlockchainInterface) GetCode(hash ethgo.Hash) ([]byte, error) {
 	return nil, nil
 }
 
-func (b *nullBlockchainInterface) GetStorage(root ethgo.Hash, addr ethgo.Address, slot ethgo.Hash) ([]byte, error) {
-	return nil, nil
+func (b *nullBlockchainInterface) GetStorage(root ethgo.Hash, addr ethgo.Address, slot ethgo.Hash) ([]byte, bool, error) {
+	return nil, false, nil
 }
 
-func (b *nullBlockchainInterface) GetAccount(root ethgo.Hash, addr ethgo.Address) (*Account, error) {
-	return nil, nil
+func (b *nullBlockchainInterface) GetAccount(root ethgo.Hash, addr ethgo.Address) (*Account, bool, error) {
+	return nil, false, nil
 }
 
 func (b *nullBlockchainInterface) GetLogs(input *GetLogsInput) ([]*ethgo.Log, error) {
